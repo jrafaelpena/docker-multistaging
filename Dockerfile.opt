@@ -1,0 +1,55 @@
+# ------------------------
+# Stage 1: Builder
+# ------------------------
+FROM python:3.10.16 AS builder
+
+# Copy uv binaries from the upstream image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# UV_COMPILE_BYTECODE: forces this compilation to happen during installation/syncing.
+# UV_LINK_MODE: Silence uv complaining about not being able to use hard links
+# UV_PROJECT_ENVIRONMENT: Declare `/app` as the target for `uv sync`
+# Specifies the path to the directory to use for a project virtual environment.
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+WORKDIR /app
+
+# Bind necessary files and install dependencies
+RUN --mount=type=cache,target=/root/.cache \
+    --mount=type=bind,source=.python-version,target=.python-version \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project
+
+
+# ------------------------
+# Stage 2: Slim Final Image
+# ------------------------
+FROM python:3.10.16-slim
+
+RUN apt-get update && apt-get install -y libgomp1
+
+# Optional: prevent Python from writing .pyc files and buffering stdout
+# PYTHONDONTWRITEBYTECODE=1, Prevents Python from creating .pyc files (compiled bytecode).
+# Normally, Python creates .pyc files (e.g. module.cpython-312.pyc) in __pycache__/ directories when importing modules to speed up future loads.
+# PYTHONUNBUFFERED=1, Forces stdout and stderr to be unbuffered.
+# Normally, Python buffers output (it waits to fill a buffer before printing), especially when not writing to a terminal (e.g., inside Docker).
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 
+
+# Set working directory
+WORKDIR /app
+
+# Instalar libgomp
+
+# Copy only the virtual environment and app code
+COPY --from=builder /app/.venv /app/.venv
+
+COPY app/ .
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Set the default command
+CMD ["python", "main.py"]

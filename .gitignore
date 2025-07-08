@@ -1,0 +1,5 @@
+.ipynb_checkpoints
+
+.venv
+
+Docker_Multistaging.egg-info
